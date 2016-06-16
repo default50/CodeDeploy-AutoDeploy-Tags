@@ -1,0 +1,25 @@
+---
+project: autodeploy-prj
+default-region: us-east-1
+code-bucket: autodeploy-prj-f600e726
+apps:
+  - gordon.contrib.lambdas
+  - autodeploy-app
+
+events:
+  new_tagged_instance:
+    description: Call Lambda on instance launch
+    state: ENABLE
+
+    targets:
+      autodeploy-lambda:
+        lambda: autodeploy-app:autodeploy-lambda
+
+    event_pattern:
+        source:
+          - aws.ec2
+        detail:
+          state:
+            - running
+        detail-type:
+            - "EC2 Instance State-change Notification"

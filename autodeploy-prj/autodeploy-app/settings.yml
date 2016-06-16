@@ -1,0 +1,8 @@
+lambdas:
+  autodeploy-lambda:
+    code: autodeploy-lambda
+    handler: autodeploy.autodeploy_handler
+    runtime: python
+    description: Triggers a deployment to instances launched with certain Tags
+    #role:
+    #memory:
