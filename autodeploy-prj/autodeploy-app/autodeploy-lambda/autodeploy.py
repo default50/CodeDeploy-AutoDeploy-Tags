@@ -2,40 +2,41 @@ import boto3
 import logging
 import json
 
-#setup simple logging for INFO
+# Setup simple logging for INFO
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+### Global variables to adjust behaviour. Change to fit your setup.
+cd_app_name = "DemoApplication"
+cd_dst_dg_name = "Demo-Tag-Ubuntu"
+cd_dg_name = "Demo-Tag-Ubuntu-PreProd"
+# Replace the following tag Key and Value for the one used in your initial Deployment Group
+cd_dg_tag = {'Key': 'CodeDeploy', 'Value': 'PreProd'}
+
+# Function to deal with paginated results. Have to generalize it. Returns a generator.
+def cd_get_deployments(client, token=None, **params):
+    #print token
+    #for k,v in params.iteritems():
+    #         print "%s = %s" % (k, v)
+
+    results = None
+    if token:
+        results = client.list_deployments(nextToken=token, **params)
+    else:
+        results = client.list_deployments(**params)
+
+    for i in results['deployments']:
+        yield i
+
+    if 'nextToken' in results:
+        for i in cd_get_deployments(client, token=results['nextToken'], **params):
+            yield i
 
 def autodeploy_handler(event, context):
     #print ("Received event dump:")
     #print ("--------------------------------------------------------------------------------------------")
     #print (json.dumps(event, indent=2))
     #print ("--------------------------------------------------------------------------------------------")
-
-    # Function to deal with paginated results. Have to generalize it. Returns a generator.
-    def cd_get_deployments(client, token=None, **params):
-        #print token
-        #for k,v in params.iteritems():
-        #         print "%s = %s" % (k, v)
-
-        results = None
-        if token:
-            results = client.list_deployments(nextToken=token, **params)
-        else:
-            results = client.list_deployments(**params)
-
-        for i in results['deployments']:
-            yield i
-    
-        if 'nextToken' in results:
-            for i in cd_get_deployments(client, token=results['nextToken'], **params):
-                yield i
-    
-    # Replace the following tag Key and Value for the one used in your initial Deployment Group
-    cd_app_name = "DemoApplication" 
-    cd_dst_dg_name = "Demo-Tag-Ubuntu"
-    cd_dg_name = "Demo-Tag-Ubuntu-PreProd"
-    cd_dg_tag = {'Key': 'CodeDeploy', 'Value': 'PreProd'}
 
     # Define the connections to the correct region
     ec2 = boto3.resource('ec2', region_name=event['region'])
@@ -59,7 +60,6 @@ def autodeploy_handler(event, context):
         for t in instance.tags:
             if t['Key'] == cd_dg_tag['Key'] and t['Value'] == cd_dg_tag['Value']:
                 print "Instance %s is a target for AutoDeploy!" % instance.id
-
 
     pepe = cd_get_deployments(
         cd,
