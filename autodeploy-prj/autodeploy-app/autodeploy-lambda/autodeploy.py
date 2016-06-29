@@ -1,10 +1,15 @@
 import boto3
 import logging
 import json
+import pprint
+from collections import defaultdict
 
 # Setup simple logging for INFO
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
+
+# Setup PrettyPrinter
+pp = pprint.PrettyPrinter(indent=2)
 
 ### Global variables to adjust behaviour. Change to fit your setup.
 cd_app_name = "DemoApplication"
@@ -12,6 +17,17 @@ cd_dst_dg_name = "Demo-Tag-Ubuntu"
 cd_dg_name = "Demo-Tag-Ubuntu-PreProd"
 # Replace the following tag Key and Value for the one used in your initial Deployment Group
 cd_dg_tag = {'Key': 'CodeDeploy', 'Value': 'PreProd'}
+
+# Function to merge filtered dictionaries into one. Unmatched keys allowed.
+# For each key specified values will become a list of values in the order
+# of *args. Empty values of keys become None in the resulting list.
+def dict_merger(key_filters=None, *args):
+    dd = defaultdict(list)
+    for d in args:
+        for f in key_filters:
+           dd[f].append(d.get(f))
+
+    return dict(dd)
 
 # Function to deal with paginated results. Have to generalize it. Returns a generator.
 def cd_get_deployments(client, token=None, **params):
@@ -32,6 +48,18 @@ def cd_get_deployments(client, token=None, **params):
         for i in cd_get_deployments(client, token=results['nextToken'], **params):
             yield i
 
+# Function to deal with paginated results.
+def get_all_results(client_function, key_filters, **params):
+
+    tmpResults = [client_function(**params)]
+
+    while tmpResults[-1].get('nextToken'):
+        tmpResults.append(client_function(nextToken=tmpResults[-1].get('nextToken'), **params))
+
+    results = dict_merger(key_filters, *tmpResults)
+
+    return results
+
 def autodeploy_handler(event, context):
     #print ("Received event dump:")
     #print ("--------------------------------------------------------------------------------------------")
@@ -40,6 +68,7 @@ def autodeploy_handler(event, context):
 
     # Define the connections to the correct region
     ec2 = boto3.resource('ec2', region_name=event['region'])
+    ec2_client = boto3.client('ec2', region_name=event['region'])
     cd = boto3.client('codedeploy', region_name=event['region'])
        
     print "Event Region:", event['region']
@@ -61,12 +90,21 @@ def autodeploy_handler(event, context):
             if t['Key'] == cd_dg_tag['Key'] and t['Value'] == cd_dg_tag['Value']:
                 print "Instance %s is a target for AutoDeploy!" % instance.id
 
-    pepe = cd_get_deployments(
-        cd,
-        None,
+    deployments = get_all_results(
+        cd.list_deployments,
+        ['deployments'],
         applicationName = cd_app_name,
         deploymentGroupName = cd_dst_dg_name,
         includeOnlyStatuses = ['Succeeded']
         )
-    for i in pepe:
-        print i
+    # Flatten the resulting list
+    deployments = [item for sublist in deployments['deployments'] for item in sublist]
+    print(deployments)
+    #pp.pprint(deployments)
+
+    #print "----------> instances results below:"
+    #instances = get_all_results(
+    #    ec2_client.describe_instances,
+    #    ['Reservations']
+    #    )
+    #pp.pprint(instances)
