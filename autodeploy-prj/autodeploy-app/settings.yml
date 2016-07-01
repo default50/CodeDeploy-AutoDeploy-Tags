@@ -4,5 +4,28 @@ lambdas:
     handler: autodeploy.autodeploy_handler
     runtime: python
     description: Triggers a deployment to instances launched with certain Tags
+    timeout: 300
     #role:
+    policies:
+      ec2:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Action:
+              - "ec2:DescribeInstances"
+            Resource: "*"
+            Effect: "Allow"
+      cd:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Action:
+              - "codedeploy:ListDeployments"
+              - "codedeploy:BatchGetDeployments"
+              - "codedeploy:GetDeployment"
+              - "codedeploy:CreateDeployment"
+              - "codedeploy:GetDeploymentConfig"
+              - "codedeploy:GetApplicationRevision"
+            Resource: "*"
+            Effect: "Allow"
     #memory:
