@@ -5,8 +5,6 @@ import pprint
 from collections import defaultdict
 import jmespath
 from itertools import izip_longest
-#import datetime
-#from dateutil.tz import tzlocal
 
 # Setup simple logging for INFO
 logger = logging.getLogger()
@@ -23,18 +21,6 @@ cd_dg_name = "Demo-Tag-Ubuntu-PreProd"
 cd_dg_tag = {'Key': 'CodeDeploy', 'Value': 'PreProd'}
 
 
-#### Function to merge filtered dictionaries into one. Unmatched keys allowed.
-#### For each key specified values will become a list of values in the order
-#### of *args. Empty values of keys become None in the resulting list.
-###def dict_merger(key_filters=None, *args):
-###    dd = defaultdict(list)
-###    for d in args:
-###        for f in key_filters:
-###           dd[f].append(d.get(f))
-###
-###    return dict(dd)
-
-
 # Function to deal with paginated results.
 def get_all_results(client_function, jmes_query=None, flatten=False, **params):
     results = list()
@@ -43,9 +29,6 @@ def get_all_results(client_function, jmes_query=None, flatten=False, **params):
     while tmpResults[-1].get('nextToken'):
         tmpResults.append(client_function(nextToken=tmpResults[-1].get('nextToken'), **params))
 
-    ###print "Obtained {0} pages of data.".format(len(tmpResults))
-
-    ###results = dict_merger(key_filters, *tmpResults)
     if jmes_query:
         for r in tmpResults:
             results.append(jmespath.search(jmes_query, r))
@@ -61,14 +44,8 @@ def get_all_results(client_function, jmes_query=None, flatten=False, **params):
 
 
 def autodeploy_handler(event, context):
-    ###print ("Received event dump:")
-    ###print ("--------------------------------------------------------------------------------------------")
-    ###print (json.dumps(event, indent=2))
-    ###print ("--------------------------------------------------------------------------------------------")
-
     # Define the connections to the correct region
     ec2 = boto3.resource('ec2', region_name=event['region'])
-    ec2_client = boto3.client('ec2', region_name=event['region'])
     cd = boto3.client('codedeploy', region_name=event['region'])
        
     print "Event Region: {0}".format(event['region'])
@@ -116,4 +93,12 @@ def autodeploy_handler(event, context):
     deployments_info.sort(key=lambda x: x[1])
     latest_deployment = deployments_info[-1][0]
 
-    pp.pprint(latest_deployment)
+    deployment_template = jmespath.search(
+        'deploymentInfo.{applicationName:applicationName,deploymentGroupName:deploymentGroupName,revision:revision,deploymentConfigName:deploymentConfigName}',
+        cd.get_deployment(deploymentId=latest_deployment)
+        )
+    deployment_template['deploymentGroupName'] = cd_dg_name # Overwrite the Deployment Group name
+    deployment_template['description'] = "Created from Lambda"
+
+    resp = cd.create_deployment(**deployment_template)
+    pp.pprint(resp)
