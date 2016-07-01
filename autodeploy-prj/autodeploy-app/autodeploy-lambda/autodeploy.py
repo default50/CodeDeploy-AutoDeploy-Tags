@@ -103,8 +103,10 @@ def autodeploy_handler(event, context):
     if len(deployments) > 100:
         ###print "more than 100!"
         batch_deployments = list()
-        for chunk in izip_longest(*([iter(deployments)] * 100)):
-            chunk = filter(lambda x: x!=None, chunk)
+        chunk_size = [iter(deployments)] * 100 # batch_get_deployments has a max of 100 IDs as input
+
+        for chunk in izip_longest(*chunk_size):
+            chunk = filter(lambda x: x!=None, chunk) # Remove None fillings from list
             batch_deployments.extend(get_all_results(
                 cd.batch_get_deployments,
                 'deploymentsInfo[].[deploymentId,createTime]',
