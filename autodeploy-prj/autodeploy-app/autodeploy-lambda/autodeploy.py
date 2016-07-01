@@ -5,6 +5,8 @@ import pprint
 from collections import defaultdict
 import jmespath
 from itertools import izip_longest
+#import datetime
+#from dateutil.tz import tzlocal
 
 # Setup simple logging for INFO
 logger = logging.getLogger()
@@ -15,7 +17,7 @@ pp = pprint.PrettyPrinter(indent=2)
 
 # Global variables to adjust behaviour. Change to fit your setup.
 cd_app_name = "DemoApplication"
-cd_dst_dg_name = "Demo-ASG-Ubuntu"
+cd_dst_dg_name = "Demo-Tag-Ubuntu"
 cd_dg_name = "Demo-Tag-Ubuntu-PreProd"
 # Replace the following tag Key and Value for the one used in your initial Deployment Group
 cd_dg_tag = {'Key': 'CodeDeploy', 'Value': 'PreProd'}
@@ -97,28 +99,21 @@ def autodeploy_handler(event, context):
         deploymentGroupName = cd_dst_dg_name,
         includeOnlyStatuses = ['Succeeded']
         )
-    ###pp.pprint(len(deployments))
 
-    print "----------> batch_get_deployments results below:"
-    if len(deployments) > 100:
-        ###print "more than 100!"
-        batch_deployments = list()
-        chunk_size = [iter(deployments)] * 100 # batch_get_deployments has a max of 100 IDs as input
+    # Get details about the previously found deployments, in batches (max 100) 
+    deployments_info = list()
+    chunk_size = [iter(deployments)] * 100 # batch_get_deployments has a max of 100 IDs as input
 
-        for chunk in izip_longest(*chunk_size):
-            chunk = filter(lambda x: x!=None, chunk) # Remove None fillings from list
-            batch_deployments.extend(get_all_results(
-                cd.batch_get_deployments,
-                'deploymentsInfo[].[deploymentId,createTime]',
-                flatten=True,
-                deploymentIds=chunk)
-                )
-    else:
-        batch_deployments = get_all_results(
+    for chunk in izip_longest(*chunk_size):
+        chunk = filter(lambda x: x!=None, chunk) # Remove None fillings from list
+        deployments_info.extend(get_all_results(
             cd.batch_get_deployments,
             'deploymentsInfo[].[deploymentId,createTime]',
             flatten=True,
-            deploymentIds=deployments
+            deploymentIds=chunk)
             )
+   
+    deployments_info.sort(key=lambda x: x[1])
+    latest_deployment = deployments_info[-1][0]
 
-    pp.pprint(batch_deployments)
+    pp.pprint(latest_deployment)
