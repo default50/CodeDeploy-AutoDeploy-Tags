@@ -20,28 +20,6 @@ cd_dg_name = "Demo-Tag-Ubuntu-PreProd"
 cd_dg_tag = {'Key': 'CodeDeploy', 'Value': 'PreProd'}
 
 
-# Function to deal with paginated results.
-def get_all_results(client_function, jmes_query=None, flatten=False, **params):
-    results = list()
-    tmpResults = [client_function(**params)]
-
-    while tmpResults[-1].get('nextToken'):
-        tmpResults.append(client_function(nextToken=tmpResults[-1].get('nextToken'), **params))
-
-    if jmes_query:
-        for r in tmpResults:
-            results.append(jmespath.search(jmes_query, r))
-        if flatten:
-            return [item for sublist in results for item in sublist]
-        else:
-            return results
-    else:
-        if flatten:
-            return [item for sublist in tmpResults for item in sublist]
-        else:
-            return tmpResults
-
-
 def autodeploy_handler(event, context):
     # Define the connections to the correct region
     ec2 = boto3.resource('ec2', region_name=event['region'])
@@ -66,38 +44,19 @@ def autodeploy_handler(event, context):
             if t['Key'] == cd_dg_tag['Key'] and t['Value'] == cd_dg_tag['Value']:
                 print "Instance {0} is a target for AutoDeploy!".format(instance.id)
  
-    # Get all successful deployments from the destination Deployment Group
-    deployments = get_all_results(
-        cd.list_deployments,
-        'deployments',
-        flatten=True,
-        applicationName = cd_app_name,
-        deploymentGroupName = cd_dst_dg_name,
-        includeOnlyStatuses = ['Succeeded']
-        )
-
-    # Get details about the previously found deployments, in batches (max 100) 
-    deployments_info = list()
-    chunk_size = [iter(deployments)] * 100 # batch_get_deployments has a max of 100 IDs as input
-
-    for chunk in izip_longest(*chunk_size):
-        chunk = filter(lambda x: x!=None, chunk) # Remove None fillings from list
-        deployments_info.extend(get_all_results(
-            cd.batch_get_deployments,
-            'deploymentsInfo[].[deploymentId,createTime]',
-            flatten=True,
-            deploymentIds=chunk)
+    # Get latest successful Revision from the destination Deployment Group
+    revision = jmespath.search(
+        'deploymentGroupInfo.{revision:targetRevision}',
+        cd.get_deployment_group(
+            applicationName = cd_app_name,
+            deploymentGroupName = cd_dst_dg_name,
             )
-   
-    deployments_info.sort(key=lambda x: x[1])
-    latest_deployment = deployments_info[-1][0]
-
-    deployment_template = jmespath.search(
-        'deploymentInfo.{applicationName:applicationName,deploymentGroupName:deploymentGroupName,revision:revision,deploymentConfigName:deploymentConfigName}',
-        cd.get_deployment(deploymentId=latest_deployment)
         )
-    deployment_template['deploymentGroupName'] = cd_dg_name # Overwrite the Deployment Group name
-    deployment_template['description'] = "Created from Lambda"
 
-    resp = cd.create_deployment(**deployment_template)
+    # Create Deployment for the inital Deployment Group 
+    resp = cd.create_deployment(
+        applicationName = cd_app_name,
+        deploymentGroupName = cd_dg_name,
+        **revision
+        )
     pp.pprint(resp)
