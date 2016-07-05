@@ -2,7 +2,6 @@ import boto3
 import logging
 import json
 import pprint
-from collections import defaultdict
 import jmespath
 from itertools import izip_longest
 
