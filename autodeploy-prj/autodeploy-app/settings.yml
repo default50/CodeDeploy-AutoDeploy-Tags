@@ -20,12 +20,10 @@ lambdas:
         Statement:
           -
             Action:
-              - "codedeploy:ListDeployments"
-              - "codedeploy:BatchGetDeployments"
-              - "codedeploy:GetDeployment"
-              - "codedeploy:CreateDeployment"
+              - "codedeploy:GetDeploymentGroup"
               - "codedeploy:GetDeploymentConfig"
               - "codedeploy:GetApplicationRevision"
+              - "codedeploy:CreateDeployment"
             Resource: "*"
             Effect: "Allow"
     #memory:
