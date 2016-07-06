@@ -23,3 +23,7 @@ events:
             - running
         detail-type:
             - "EC2 Instance State-change Notification"
+
+contexts:
+  default:
+    trigger_arn: ref://TriggerArn

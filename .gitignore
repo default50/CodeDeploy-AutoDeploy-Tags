@@ -93,3 +93,6 @@ _build/
 
 # vim .swp files
 *.swp
+
+# Project settings
+autodeploy-prj/parameters/common.yml
