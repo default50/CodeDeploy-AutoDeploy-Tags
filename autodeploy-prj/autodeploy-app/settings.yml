@@ -5,7 +5,6 @@ lambdas:
     runtime: python
     description: Triggers a deployment to instances launched with certain Tags
     timeout: 300
-    #role:
     policies:
       ec2:
         Version: "2012-10-17"
@@ -13,6 +12,8 @@ lambdas:
           -
             Action:
               - "ec2:DescribeInstances"
+              - "ec2:CreateTags"
+              - "ec2:DeleteTags"
             Resource: "*"
             Effect: "Allow"
       cd:
@@ -24,6 +25,8 @@ lambdas:
               - "codedeploy:GetDeploymentConfig"
               - "codedeploy:GetApplicationRevision"
               - "codedeploy:CreateDeployment"
+              - "codedeploy:CreateDeploymentGroup"
+              - "codedeploy:DeleteDeploymentGroup"
+              - "iam:PassRole"
             Resource: "*"
             Effect: "Allow"
-    #memory:
