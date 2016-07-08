@@ -23,6 +23,7 @@ cd_dg_tag = {'Key': 'Name', 'Value': 'CodeDeployDemo-Tag-Ubuntu'}
 
 
 def instance_launch_handler(event, context):
+    #Temporary workaround for this https://github.com/jorgebastida/gordon/issues/67
     #with open('/tmp/.context', 'r') as f:
     with open('.context', 'r') as f:
         gordon_context = json.loads(f.read())
@@ -63,14 +64,12 @@ def instance_launch_handler(event, context):
         applicationName = cd_app_name,
         deploymentGroupName = cd_dg_name
         )
-    ###pp.pprint(deployment_group)
 
     # Build Revision dict from the destination Deployment Group
     revision = jmespath.search(
         'deploymentGroupInfo.{revision:targetRevision}',
         deployment_group
         )
-    ###pp.pprint(revision)
 
     # Tag instance with unique Tag
     ec2.create_tags(
@@ -95,7 +94,6 @@ def instance_launch_handler(event, context):
                     'triggerName': 'AutoDeploy'
                     }]
         )
-    ###pp.pprint(resp)
 
     # Create Deployment for the unique Deployment Group 
     resp = cd.create_deployment(
@@ -103,17 +101,20 @@ def instance_launch_handler(event, context):
         deploymentGroupName = cd_dg_name+'-'+suffix,
         **revision
         )
-    ###pp.pprint(resp)
 
+    print 'SUCCESS: Deployment triggered'
     return 'SUCCESS: Deployment triggered'
+
 
 def sns_handler(event, context):
 
+    # Process the notification received when the temporary Deployment Group is created with a Trigger
     if 'SUCCESS: AWS CodeDeploy notification setup for trigger' in jmespath.search('Records[].Sns[].Subject', event)[0]:
 
         print "SNS notification setup for trigger received. Message: \n" + jmespath.search('Records[].Sns[].Message', event)[0]
         return 'SUCCESS: SNS trigger configuration notification received'
 
+    # Process the notification received when the deployment is successful
     elif 'SUCCEEDED: AWS CodeDeploy' in jmespath.search('Records[].Sns[].Subject', event)[0]:
 
         # The CodeDeploy event result comes inside the Message of the SNS notification.
@@ -147,15 +148,19 @@ def sns_handler(event, context):
             deploymentGroupName=message['deploymentGroupName']
             )
         
+        print 'SUCCESS: Cleaned up temporary Deployment Group and Tags'
         return 'SUCCESS: Cleaned up temporary Deployment Group and Tags'
+
+    # Unhandled SNS notification received
+    else:
+        print "WARNING: Unhandled SNS notification received!\nDump of event:\n" + json.dumps(event, indent=2)
+        return 'WARNING: Unhandled SNS notification received'
     
 def autodeploy_handler(event, context):
 
     if jmespath.search('["detail-type", detail.state]', event) == [u'EC2 Instance State-change Notification', u'running']:
-        print "Call instance_launch_handler"
         return instance_launch_handler(event, context)
     elif jmespath.search('Records[].EventSource[]', event)[0] == 'aws:sns':
-        print "Call sns_handler"
         return sns_handler(event, context)
     else:
         print "WARNING: Unkown event received!\nDump of event:\n" + json.dumps(event, indent=2)
