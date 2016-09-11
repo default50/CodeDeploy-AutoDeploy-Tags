@@ -21,12 +21,12 @@ lambdas:
         Statement:
           -
             Action:
+              - "codedeploy:GetDeployment"
               - "codedeploy:GetDeploymentGroup"
               - "codedeploy:GetDeploymentConfig"
               - "codedeploy:GetApplicationRevision"
               - "codedeploy:CreateDeployment"
-              - "codedeploy:CreateDeploymentGroup"
-              - "codedeploy:DeleteDeploymentGroup"
+              - "codedeploy:UpdateDeploymentGroup"
               - "iam:PassRole"
             Resource: "*"
             Effect: "Allow"

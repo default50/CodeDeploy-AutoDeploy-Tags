@@ -1,71 +1,68 @@
+from __future__ import print_function
+
 import boto3
+import botocore
 import logging
 import json
-import pprint
 import jmespath
-from itertools import izip_longest
 from random import choice
 from string import ascii_uppercase, digits
+import time
 
-# Setup simple logging for INFO
+# Setup simple logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-
-# Setup PrettyPrinter
-pp = pprint.PrettyPrinter(indent=2)
 
 # Global variables to adjust behaviour. Change to fit your setup.
 cd_app_name = 'DemoApplication'
 cd_dg_name = 'Demo-Tag-Ubuntu'
 # Replace the following tag Key and Value for the one used in your initial Deployment Group
 # ToDo: look this up automatically from the DG
-cd_dg_tag = {'Key': 'Name', 'Value': 'CodeDeployDemo-Tag-Ubuntu'}
+cd_dg_tags = [{'Key': 'Name', 'Value': 'CodeDeployDemo-Tag-Ubuntu'}]
 
 
-def instance_launch_handler(event, context):
-    #Temporary workaround for this https://github.com/jorgebastida/gordon/issues/67
-    #with open('/tmp/.context', 'r') as f:
-    with open('.context', 'r') as f:
-        gordon_context = json.loads(f.read())
+def instance_state_handler(event, context):
 
-    # Define the connections to the correct region
-    ec2 = boto3.resource('ec2', region_name=event['region'])
-    cd = boto3.client('codedeploy', region_name=event['region'])
-       
-    print "Event Region: {0}".format(event['region'])
-    print "Event Time: {0}".format(event['time'])
-    print "Instance ID: {0}".format(event['detail']['instance-id'])
-    print "Instance Status: {0}".format(event['detail']['state'])
+    logger.info('Event from region {0}. Instance {1} is now in \'{2}\' state.'.format(event['region'], event['detail']['instance-id'], event['detail']['state']))
     
+    # Define the connections to the correct region
+    ec2 = boto3.client('ec2', region_name=event['region'])
+    cd = boto3.client('codedeploy', region_name=event['region'])
+   
     # Obtain the EC2 object of the instance from the event
-    instance = ec2.Instance(event['detail']['instance-id'])
+    instance = jmespath.search('Reservations[].Instances[] | [0]', ec2.describe_instances(InstanceIds=[event['detail']['instance-id']]))
 
-    # Print a dict of the Tags (see https://github.com/boto/boto3/issues/264)
-    print "Tags: {0}".format(dict(map(lambda x: (x['Key'], x['Value']), instance.tags or [])))
+    # Log a dict of the filtering Tags (see https://github.com/boto/boto3/issues/264)
+    logger.debug("Filtering instances with these tags: {0}".format(dict(map(lambda x: (x['Key'], x['Value']), cd_dg_tags))))
 
-    # Print a dict of the filtering Tag
-    print "Filter: {{'{0}': '{1}'}}".format(cd_dg_tag['Key'], cd_dg_tag['Value'])
+    # Log a dict of the Tags (see https://github.com/boto/boto3/issues/264)
+    logger.debug("Instance has this tags: {0}".format(dict(map(lambda x: (x['Key'], x['Value']), instance.get('Tags', [])))))
 
-    if instance.tags is not None:
-        if cd_dg_tag in instance.tags:
-            print "Instance {0} is a target for AutoDeploy!".format(instance.id)
-        else:
-            print "Instance {0} didn't have any matching Tags. Doing nothing!".format(instance.id)
-            return
+    # Check if the instance has at least one of the tags in the filter
+    if len([tag for tag in cd_dg_tags if tag in instance.get('Tags', [])]) > 0:
+        logger.info('Instance {0} is a target for AutoDeploy!'.format(instance['InstanceId']))
     else:
-        print "Instance {0} didn't have any Tags. Doing nothing!".format(instance.id)
-        return
+        logger.warning('Couldn\'t find any matching Tags for instance {0}. Skipping event.'.format(instance['InstanceId']))
+        return 'WARNING: Couldn\'t find any matching Tags for instance {0}. Skipping event.'.format(instance['InstanceId'])
 
     # Generate random suffix ala CloudFormation for temporary Deployment Group and Tags   
     suffix = ''.join(choice(ascii_uppercase + digits) for i in range(13))
+    logger.info('Using AutoDeploy-{0} as a temporary identifier.'.format(suffix))
 
-    # Get information from destination Deployment Group
+    # Get information from Deployment Group
     deployment_group = cd.get_deployment_group(
         applicationName = cd_app_name,
         deploymentGroupName = cd_dg_name
         )
+    logger.debug(deployment_group)
 
-    # Build Revision dict from the destination Deployment Group
+    # Save the original targets
+    orig_targets = jmespath.search(
+        'deploymentGroupInfo.{ec2TagFilters:ec2TagFilters,onPremisesInstanceTagFilters:onPremisesInstanceTagFilters,autoScalingGroups:autoScalingGroups[*].name}',
+        deployment_group
+        )
+
+    # Build Revision dict from the Deployment Group
     revision = jmespath.search(
         'deploymentGroupInfo.{revision:targetRevision}',
         deployment_group
@@ -73,95 +70,122 @@ def instance_launch_handler(event, context):
 
     # Tag instance with unique Tag
     ec2.create_tags(
-        Resources=[instance.id],
-        Tags=[{'Key': 'DeploymentGroup-'+suffix, 'Value': 'True-'+suffix}]
+        Resources=[instance['InstanceId']],
+        Tags=[{'Key': 'AutoDeploy-'+suffix, 'Value': 'True'}]
         )
 
-    # Create unique temporary Deployment Group targetting the instance by it's unique Tags
-    resp = cd.create_deployment_group(
+    # Make Deployment Group target the unique instance
+    resp = cd.update_deployment_group(
             applicationName = cd_app_name,
-            deploymentGroupName = cd_dg_name+'-'+suffix,
+            currentDeploymentGroupName = cd_dg_name,
+            autoScalingGroups=[],
+            onPremisesInstanceTagFilters=[],
             ec2TagFilters=[{
-                    'Key': 'DeploymentGroup-'+suffix,
-                    'Value': 'True-'+suffix,
-                    'Type': 'KEY_AND_VALUE'}],
-            serviceRoleArn=deployment_group['deploymentGroupInfo']['serviceRoleArn'],
-            triggerConfigurations=[{
-                    'triggerEvents': [
-                        'DeploymentSuccess'
-                    ],
-                    'triggerTargetArn': gordon_context['trigger_arn'],
-                    'triggerName': 'AutoDeploy'
-                    }]
-        )
+                    'Key': 'AutoDeploy-'+suffix,
+                    'Value': 'True',
+                    'Type': 'KEY_AND_VALUE'}]
+            )
+   
+    # Wait for instance to have appropriate tags
+    instance = jmespath.search('Reservations[].Instances[] | [0]', ec2.describe_instances(InstanceIds=[event['detail']['instance-id']]))
+    while {'Key': 'AutoDeploy-'+suffix, 'Value': 'True'} not in instance['Tags']:
+        logger.debug('Unique tag still not visible on instance. Sleeping and retrying.')
+        time.sleep(.500)
+        instance = jmespath.search('Reservations[].Instances[] | [0]', ec2.describe_instances(InstanceIds=[event['detail']['instance-id']]))
 
-    # Create Deployment for the unique Deployment Group 
-    resp = cd.create_deployment(
+    # Create Deployment (unless there's a running one)
+    deployment = {}
+    try:
+        deployment = cd.create_deployment(
+            applicationName = cd_app_name,
+            deploymentGroupName = cd_dg_name,
+            **revision
+            )
+
+        # Wait for Deployment not to be in 'Created' state
+        while (cd.get_deployment(deploymentId=deployment['deploymentId']).get('deploymentInfo', {}).get('status', {})) == 'Created':
+            time.sleep(.500)
+
+    except botocore.exceptions.ClientError as e:
+        if e.response['Error']['Code'] == 'DeploymentLimitExceededException':
+            logger.error(e.response['Error']['Message'])
+        else:
+            raise(e)
+
+    # Restore Deployment Group original targets
+    resp = cd.update_deployment_group(
         applicationName = cd_app_name,
-        deploymentGroupName = cd_dg_name+'-'+suffix,
-        **revision
+        currentDeploymentGroupName = cd_dg_name,
+        **orig_targets
         )
 
-    print 'SUCCESS: Deployment triggered'
-    return 'SUCCESS: Deployment triggered'
+    # Delete unique Tag
+    ec2.delete_tags(
+        Resources=[instance['InstanceId']],
+        Tags=[{'Key': 'AutoDeploy-'+suffix, 'Value': 'True'}]
+        )
+
+    if deployment.get('deploymentId') is not None:
+        logger.info('SUCCESS: Deployment {0} triggered'.format(deployment['deploymentId']))
+        return 'SUCCESS: Deployment {0} triggered'.format(deployment['deploymentId'])
+    else:
+        return 'ERROR: {}'.format(e.response['Error']['Message'])
 
 
 def sns_handler(event, context):
 
-    # Process the notification received when the temporary Deployment Group is created with a Trigger
+    # Process the notification received when the Trigger for the Deployment Group is created
     if 'SUCCESS: AWS CodeDeploy notification setup for trigger' in jmespath.search('Records[].Sns[].Subject', event)[0]:
 
-        print "SNS notification setup for trigger received. Message: \n" + jmespath.search('Records[].Sns[].Message', event)[0]
+        logger.info('SNS notification setup for trigger received. Message: \n{}'.format(jmespath.search('Records[].Sns[].Message | [0]', event)))
         return 'SUCCESS: SNS trigger configuration notification received'
 
-    # Process the notification received when the deployment is successful
-    elif 'SUCCEEDED: AWS CodeDeploy' in jmespath.search('Records[].Sns[].Subject', event)[0]:
+    # Process the notification received when the deployment is SUCCEEDED
+    elif 'SUCCEEDED: AWS CodeDeploy' in jmespath.search('Records[].Sns[].Subject | [0]', event):
 
         # The CodeDeploy event result comes inside the Message of the SNS notification.
-        message = json.loads(jmespath.search('Records[].Sns[].Message', event)[0])
+        message = json.loads(jmespath.search('Records[].Sns[].Message | [0]', event))
 
-        # Define the connections to the correct region
-        # Using client for ec2 because of missing delete_tags() on the resource
-        # https://github.com/boto/boto3/issues/381
-        ec2 = boto3.client('ec2', region_name=message['region'])
-        cd = boto3.client('codedeploy', region_name=message['region'])
-    
-        suffix = message['deploymentGroupName'][-13:]
-    
-        filters = [{'Name': 'tag:DeploymentGroup-'+suffix, 'Values': ['True-'+suffix]}]
-    
-        # Find instances with unique Tag
-        instance = jmespath.search('Reservations[].Instances[].InstanceId', ec2.describe_instances(Filters=filters))
-    
-        if len(instance) is 1:
-            # Delete unique Tag
-            ec2.delete_tags(
-                Resources=[instance[0]],
-                Tags=[{'Key': 'DeploymentGroup-'+suffix, 'Value': 'True-'+suffix}]
-                )
-        else:
-            return "FAIL: Should have one and only one instance matching {{'{0}': '{1}'}}".format(filters[0]['Name'], filters[0]['Values'][0])
-    
-        # Delete unique temporary Deployment Group
-        cd.delete_deployment_group(
-            applicationName=message['applicationName'],
-            deploymentGroupName=message['deploymentGroupName']
-            )
-        
-        print 'SUCCESS: Cleaned up temporary Deployment Group and Tags'
-        return 'SUCCESS: Cleaned up temporary Deployment Group and Tags'
+        logger.warning('WARNING: Successful deployments notifications are unhandled. Message:\n{}'.format(json.dumps(message, indent=2)))
+        return 'WARNING: Successful deployments notifications are unhandled.'
+
+    # Process the notification received when the deployment is FAILED
+    elif 'FAILED: AWS CodeDeploy' in jmespath.search('Records[].Sns[].Subject | [0]', event):
+
+        # The CodeDeploy event result comes inside the Message of the SNS notification.
+        message = json.loads(jmespath.search('Records[].Sns[].Message | [0]', event))
+
+        ######## Terminate instance if failed deployment ala ASG
+        ###error_info = json.loads(message['errorInformation'])
+        ###error_info['ErrorCode']
+
+        logger.info('FAILED')
+        return 'FAILED'
 
     # Unhandled SNS notification received
     else:
-        print "WARNING: Unhandled SNS notification received!\nDump of event:\n" + json.dumps(event, indent=2)
-        return 'WARNING: Unhandled SNS notification received'
+        logger.warning('WARNING: Unhandled SNS notification received. Dump of event:\n{}'.format(json.dumps(event, indent=2)))
+        return 'WARNING: Unhandled SNS notification received.'
     
 def autodeploy_handler(event, context):
 
+    # Detect if we are being run locally through gordon and output logger to stdout
+    if context.function_name == 'autodeploy-lambda':
+        import sys
+        stdout = logging.StreamHandler(sys.stdout)
+        formatter = logging.Formatter(fmt='[%(levelname)s] %(asctime)s.%(msecs)03d %(message)s', datefmt='%Y-%m-%d,%H:%M:%S')
+        stdout.setFormatter(formatter)
+        logger.addHandler(stdout)
+        logger.setLevel(logging.INFO)
+
+    logger.info('AutoDeploy function invoked for Application \'{0}\' and Deployment Group \'{1}\'.'.format(cd_app_name, cd_dg_name))
+    
     if jmespath.search('["detail-type", detail.state]', event) == [u'EC2 Instance State-change Notification', u'running']:
-        return instance_launch_handler(event, context)
+        logger.info('Instance state-change notification received.')
+        return instance_state_handler(event, context)
     elif jmespath.search('Records[].EventSource[]', event)[0] == 'aws:sns':
+        logger.info('SNS notification received.')
         return sns_handler(event, context)
     else:
-        print "WARNING: Unkown event received!\nDump of event:\n" + json.dumps(event, indent=2)
-        return 'WARNING: Unknown event'
+        logger.warning('Unkown event received. Dump of event:\n{}'.format(json.dumps(event, indent=2)))
+        return 'WARNING: Unknown event received.'
