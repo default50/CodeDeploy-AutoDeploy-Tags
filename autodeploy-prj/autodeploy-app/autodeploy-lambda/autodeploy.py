@@ -131,42 +131,6 @@ def instance_state_handler(event, context):
     else:
         return 'ERROR: {}'.format(e.response['Error']['Message'])
 
-
-def sns_handler(event, context):
-
-    # Process the notification received when the Trigger for the Deployment Group is created
-    if 'SUCCESS: AWS CodeDeploy notification setup for trigger' in jmespath.search('Records[].Sns[].Subject', event)[0]:
-
-        logger.info('SNS notification setup for trigger received. Message: \n{}'.format(jmespath.search('Records[].Sns[].Message | [0]', event)))
-        return 'SUCCESS: SNS trigger configuration notification received'
-
-    # Process the notification received when the deployment is SUCCEEDED
-    elif 'SUCCEEDED: AWS CodeDeploy' in jmespath.search('Records[].Sns[].Subject | [0]', event):
-
-        # The CodeDeploy event result comes inside the Message of the SNS notification.
-        message = json.loads(jmespath.search('Records[].Sns[].Message | [0]', event))
-
-        logger.warning('WARNING: Successful deployments notifications are unhandled. Message:\n{}'.format(json.dumps(message, indent=2)))
-        return 'WARNING: Successful deployments notifications are unhandled.'
-
-    # Process the notification received when the deployment is FAILED
-    elif 'FAILED: AWS CodeDeploy' in jmespath.search('Records[].Sns[].Subject | [0]', event):
-
-        # The CodeDeploy event result comes inside the Message of the SNS notification.
-        message = json.loads(jmespath.search('Records[].Sns[].Message | [0]', event))
-
-        ######## Terminate instance if failed deployment ala ASG
-        ###error_info = json.loads(message['errorInformation'])
-        ###error_info['ErrorCode']
-
-        logger.info('FAILED')
-        return 'FAILED'
-
-    # Unhandled SNS notification received
-    else:
-        logger.warning('WARNING: Unhandled SNS notification received. Dump of event:\n{}'.format(json.dumps(event, indent=2)))
-        return 'WARNING: Unhandled SNS notification received.'
-    
 def autodeploy_handler(event, context):
 
     # Detect if we are being run locally through gordon and output logger to stdout
@@ -183,9 +147,6 @@ def autodeploy_handler(event, context):
     if jmespath.search('["detail-type", detail.state]', event) == [u'EC2 Instance State-change Notification', u'running']:
         logger.info('Instance state-change notification received.')
         return instance_state_handler(event, context)
-    elif jmespath.search('Records[].EventSource[]', event)[0] == 'aws:sns':
-        logger.info('SNS notification received.')
-        return sns_handler(event, context)
     else:
         logger.warning('Unkown event received. Dump of event:\n{}'.format(json.dumps(event, indent=2)))
         return 'WARNING: Unknown event received.'

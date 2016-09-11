@@ -47,7 +47,3 @@ events:
             - Demo-Tag-Ubuntu
         detail-type:
             - "CodeDeploy Deployment State-change Notification"
-
-contexts:
-  default:
-    trigger_arn: ref://TriggerArn
