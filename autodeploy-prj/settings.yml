@@ -8,7 +8,7 @@ apps:
 
 events:
   new_tagged_instance:
-    description: Call Lambda on instance launch
+    description: Call AutoDeploy Lambda on instance launch
     state: ENABLE
 
     targets:
@@ -23,6 +23,30 @@ events:
             - running
         detail-type:
             - "EC2 Instance State-change Notification"
+
+  deployment_status:
+    description: Call AutoDeploy Lambda on deployment fail
+    state: ENABLE
+
+    targets:
+      autodeploy-lambda:
+        lambda: autodeploy-app:autodeploy-lambda
+
+    event_pattern:
+        source:
+          - aws.codedeploy
+        detail:
+          state:
+            - FAILURE
+            - STOP
+            - START
+            - SUCCESS
+          application:
+            - DemoApplication
+          deploymentGroup:
+            - Demo-Tag-Ubuntu
+        detail-type:
+            - "CodeDeploy Deployment State-change Notification"
 
 contexts:
   default:
