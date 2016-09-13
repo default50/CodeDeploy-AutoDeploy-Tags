@@ -38,8 +38,6 @@ events:
         detail:
           state:
             - FAILURE
-            - START
-            - SUCCESS
           application:
             - DemoApplication
           deploymentGroup:
