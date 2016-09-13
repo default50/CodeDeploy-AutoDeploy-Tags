@@ -38,7 +38,6 @@ events:
         detail:
           state:
             - FAILURE
-            - STOP
             - START
             - SUCCESS
           application:
@@ -46,4 +45,4 @@ events:
           deploymentGroup:
             - Demo-Tag-Ubuntu
         detail-type:
-            - "CodeDeploy Deployment State-change Notification"
+            - "CodeDeploy Instance State-change Notification"

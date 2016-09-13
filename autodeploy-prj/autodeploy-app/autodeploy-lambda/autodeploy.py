@@ -23,6 +23,10 @@ cd_dg_tags = [{'Key': 'Name', 'Value': 'CodeDeployDemo-Tag-Ubuntu'}]
 
 def instance_state_handler(event, context):
 
+    if event['detail']['state'] != 'running':
+        logger.error('Unexpected instance state: \'{0}\'. Check CloudWatch Events rules.'.format(event['detail']['state']))
+        return 'ERROR: Unexpected instance state: \'{0}\'. Check CloudWatch Events rules.'.format(event['detail']['state'])
+
     logger.info('Event from region {0}. Instance {1} is now in \'{2}\' state.'.format(event['region'], event['detail']['instance-id'], event['detail']['state']))
     
     # Define the connections to the correct region
@@ -33,7 +37,7 @@ def instance_state_handler(event, context):
     instance = jmespath.search('Reservations[].Instances[] | [0]', ec2.describe_instances(InstanceIds=[event['detail']['instance-id']]))
 
     # Log a dict of the filtering Tags (see https://github.com/boto/boto3/issues/264)
-    logger.debug("Filtering instances with these tags: {0}".format(dict(map(lambda x: (x['Key'], x['Value']), cd_dg_tags))))
+    logger.debug('Filtering instances with these tags: {0}'.format(dict(map(lambda x: (x['Key'], x['Value']), cd_dg_tags))))
 
     # Log a dict of the Tags (see https://github.com/boto/boto3/issues/264)
     logger.debug("Instance has this tags: {0}".format(dict(map(lambda x: (x['Key'], x['Value']), instance.get('Tags', [])))))
@@ -143,10 +147,16 @@ def autodeploy_handler(event, context):
         logger.setLevel(logging.INFO)
 
     logger.info('AutoDeploy function invoked for Application \'{0}\' and Deployment Group \'{1}\'.'.format(cd_app_name, cd_dg_name))
-    
-    if jmespath.search('["detail-type", detail.state]', event) == [u'EC2 Instance State-change Notification', u'running']:
-        logger.info('Instance state-change notification received.')
+
+    event_pattern = jmespath.search('["detail-type", source]', event)
+    if event_pattern == [u'EC2 Instance State-change Notification', u'aws.ec2']:
+        logger.info('EC2 instance state-change notification received.')
         return instance_state_handler(event, context)
+    elif event_pattern == [u'CodeDeploy Instance State-change Notification', u'aws.codedeploy']:
+        logger.info('CodeDeploy instance state-change notification received.')
+        # TODO: implement function for handling deployment status
+        #return deploy_state_handler(event, context)
+        return 'CodeDeploy instance state-change notification received.'
     else:
         logger.warning('Unkown event received. Dump of event:\n{}'.format(json.dumps(event, indent=2)))
         return 'WARNING: Unknown event received.'
