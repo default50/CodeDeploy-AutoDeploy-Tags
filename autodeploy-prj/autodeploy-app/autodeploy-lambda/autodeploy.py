@@ -16,8 +16,9 @@ logger.setLevel(logging.INFO)
 # Global variables to adjust behaviour. Change to fit your setup.
 cd_app_name = 'DemoApplication'
 cd_dg_name = 'Demo-Tag-Ubuntu'
+terminate_on_fail = False
 # Replace the following tag Key and Value for the one used in your initial Deployment Group
-# ToDo: look this up automatically from the DG
+# TODO: look this up automatically from the DG
 cd_dg_tags = [{'Key': 'Name', 'Value': 'CodeDeployDemo-Tag-Ubuntu'}]
 
 
@@ -26,8 +27,8 @@ def instance_state_handler(event, context):
     if event['detail']['state'] != 'running':
         logger.error('Unexpected instance state: \'{0}\'. Check CloudWatch Events rules.'.format(event['detail']['state']))
         return 'ERROR: Unexpected instance state: \'{0}\'. Check CloudWatch Events rules.'.format(event['detail']['state'])
-
-    logger.info('Event from region {0}. Instance {1} is now in \'{2}\' state.'.format(event['region'], event['detail']['instance-id'], event['detail']['state']))
+    else:
+        logger.info('Event from region {0}. Instance {1} is now in \'{2}\' state.'.format(event['region'], event['detail']['instance-id'], event['detail']['state']))
     
     # Define the connections to the correct region
     ec2 = boto3.client('ec2', region_name=event['region'])
@@ -79,7 +80,7 @@ def instance_state_handler(event, context):
         )
 
     # Make Deployment Group target the unique instance
-    resp = cd.update_deployment_group(
+    response = cd.update_deployment_group(
             applicationName = cd_app_name,
             currentDeploymentGroupName = cd_dg_name,
             autoScalingGroups=[],
@@ -117,7 +118,7 @@ def instance_state_handler(event, context):
             raise(e)
 
     # Restore Deployment Group original targets
-    resp = cd.update_deployment_group(
+    response = cd.update_deployment_group(
         applicationName = cd_app_name,
         currentDeploymentGroupName = cd_dg_name,
         **orig_targets
@@ -134,6 +135,29 @@ def instance_state_handler(event, context):
         return 'SUCCESS: Deployment {0} triggered'.format(deployment['deploymentId'])
     else:
         return 'ERROR: {}'.format(e.response['Error']['Message'])
+
+
+def deploy_state_handler(event, context):
+
+    if event['detail']['state'] != 'FAILURE':
+        logger.error('Unexpected deployment to instance state: \'{0}\'. Check CloudWatch Events rules.'.format(event['detail']['state']))
+        return 'ERROR: Unexpected deployment instance state: \'{0}\'. Check CloudWatch Events rules.'.format(event['detail']['state'])
+    else:
+# TODO: find out if the deployment failed was triggered by AutoDeploy to continue with termination, if not abort
+        logger.info('Event from region {0}. Deployment {1} to instance {2} is now in \'{3}\' state.'.format(event['region'], event['detail']['deploymentId'], event['detail']['instanceId'], event['detail']['state']))
+
+    # Define the connections to the correct region
+    ec2 = boto3.client('ec2', region_name=event['region'])
+
+    if terminate_on_fail is True:
+        response = ec2.terminate_instances(
+            DryRun=True,
+            InstanceIds=[event['detail']['instanceId']]
+        )
+    else:
+        logger.warning('\'terminate_on_failure\' flag is not enabled, skipping termination of instance {}'.format(event['detail']['instanceId']))
+        return 'WARNING: \'terminate_on_failure\' flag is not enabled, skipping termination of instance {}'.format(event['detail']['instanceId'])
+
 
 def autodeploy_handler(event, context):
 
@@ -154,9 +178,7 @@ def autodeploy_handler(event, context):
         return instance_state_handler(event, context)
     elif event_pattern == [u'CodeDeploy Instance State-change Notification', u'aws.codedeploy']:
         logger.info('CodeDeploy instance state-change notification received.')
-        # TODO: implement function for handling deployment status
-        #return deploy_state_handler(event, context)
-        return 'CodeDeploy instance state-change notification received.'
+        return deploy_state_handler(event, context)
     else:
         logger.warning('Unkown event received. Dump of event:\n{}'.format(json.dumps(event, indent=2)))
         return 'WARNING: Unknown event received.'

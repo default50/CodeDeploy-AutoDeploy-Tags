@@ -1,0 +1,23 @@
+{
+  "account": "123456789012",
+  "region": "us-east-1",
+  "detail": {
+    "instanceId": "i-abcd1234efgh5678i",
+    "region": "us-east-1",
+    "deploymentId": "d-910AYJ0WH",
+    "application": "DemoApplication",
+    "state": "FAILURE",
+    "deploymentGroup": "Demo-Tag-Ubuntu",
+    "instanceGroupId": "9d9132ee-bebe-dead-beef-524c288a1df2"
+  },
+  "detail-type": "CodeDeploy Instance State-change Notification",
+  "source": "aws.codedeploy",
+  "version": "0",
+  "time": "2016-09-12T00:14:07Z",
+  "id": "4400e89b-691d-4e35-a8fa-fa94de76ae75",
+  "resources": [
+    "arn:aws:codedeploy:us-east-1:123456789012:application:DemoApplication",
+    "arn:aws:codedeploy:us-east-1:123456789012:deploymentgroup:DemoApplication/Demo-Tag-Ubuntu",
+    "arn:aws:ec2:us-east-1:123456789012:instance/i-abcd1234efgh5678i"
+  ]
+}
