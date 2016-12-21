@@ -39,8 +39,8 @@ events:
           state:
             - FAILURE
           application:
-            - DemoApplication
+            - AutoDeploy-TestApp
           deploymentGroup:
-            - Demo-Tag-Ubuntu
+            - AutoDeploy-TestDG
         detail-type:
             - "CodeDeploy Instance State-change Notification"

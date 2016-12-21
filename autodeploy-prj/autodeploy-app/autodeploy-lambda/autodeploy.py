@@ -14,12 +14,12 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # Global variables to adjust behaviour. Change to fit your setup.
-cd_app_name = 'DemoApplication'
-cd_dg_name = 'Demo-Tag-Ubuntu'
+cd_app_name = 'AutoDeploy-TestApp'
+cd_dg_name = 'AutoDeploy-TestDG'
 terminate_on_fail = False
 # Replace the following tag Key and Value for the one used in your initial Deployment Group
 # TODO: look this up automatically from the DG
-cd_dg_tags = [{'Key': 'Name', 'Value': 'CodeDeployDemo-Tag-Ubuntu'}]
+cd_dg_tags = [{'Key': 'AutoDeploy', 'Value': 'Test'}]
 
 
 def instance_state_handler(event, context):
@@ -43,6 +43,7 @@ def instance_state_handler(event, context):
     # Log a dict of the Tags (see https://github.com/boto/boto3/issues/264)
     logger.debug("Instance has this tags: {0}".format(dict(map(lambda x: (x['Key'], x['Value']), instance.get('Tags', [])))))
 
+    # TODO: Review this logic. Maybe control if it has the "special" random tag and use it to abort/detect parallel deployments
     # Check if the instance has at least one of the tags in the filter
     if len([tag for tag in cd_dg_tags if tag in instance.get('Tags', [])]) > 0:
         logger.info('Instance {0} is a target for AutoDeploy!'.format(instance['InstanceId']))
@@ -68,6 +69,9 @@ def instance_state_handler(event, context):
         )
 
     # Build Revision dict from the Deployment Group
+    # TODO:
+    # - Maybe use the "Description" of the revision to store the marker about the deployment being done by AutoDeploy.
+    # - If there's no previous revision fall back to a predefined one.
     revision = jmespath.search(
         'deploymentGroupInfo.{revision:targetRevision}',
         deployment_group
